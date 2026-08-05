@@ -1,5 +1,5 @@
 # QWED Finance Guard v2.0 Docker Image
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
@@ -8,19 +8,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-RUN pip install --no-cache-dir pandas sympy
-
-# Copy the entire qwed_finance package (local)
+# Install Python dependencies from project metadata (single source of truth)
 COPY qwed_finance/ /app/qwed_finance/
+COPY pyproject.toml /app/pyproject.toml
+RUN pip install --no-cache-dir /app
 
 # Copy action entrypoint
 COPY action_entrypoint.py /app/action_entrypoint.py
 
 # Set Python path
 ENV PYTHONPATH=/app
-
-# Make entrypoint executable
-RUN chmod +x /app/action_entrypoint.py
 
 ENTRYPOINT ["python", "/app/action_entrypoint.py"]

@@ -1,18 +1,20 @@
 """
 QWED-Finance: Deterministic verification for banking and financial AI
 
-v2.0.0 - Major Release
+v2.1.0
 
-Nine Guards + Audit Trail + Integrations:
+Eleven Guards + Audit Trail + Integrations:
 - ComplianceGuard: KYC/AML regulatory logic (Z3)
 - CalendarGuard: Day count conventions (SymPy)
 - DerivativesGuard: Options pricing & margin (Black-Scholes)
 - MessageGuard: ISO 20022 / SWIFT validation (XML Schema)
 - QueryGuard: SQL safety & table access (SQLGlot AST)
 - CrossGuard: Multi-layer verification integration
-- BondGuard: YTM, Duration, Convexity verification [NEW in v2.0]
-- FXGuard: Forward rates, Cross rates, NDF settlement [NEW in v2.0]
-- RiskGuard: VaR, Beta, Sharpe, Sortino, Max Drawdown [NEW in v2.0]
+- BondGuard: YTM, Duration, Convexity verification
+- FXGuard: Forward rates, Cross rates, NDF settlement
+- RiskGuard: VaR, Beta, Sharpe, Sortino, Max Drawdown
+- ISOGuard: ISO 20022 JSON schema validation
+- TradingGuard: Prediction market & order book verification (Decimal)
 - VerificationReceipt: Cryptographic audit trail
 - OpenResponsesIntegration: Agentic tool call verification
 - UCPIntegration: Payment token verification
@@ -28,6 +30,8 @@ from .cross_guard import CrossGuard, CrossGuardResult
 from .bond_guard import BondGuard, BondResult
 from .fx_guard import FXGuard, FXResult, QuoteConvention
 from .risk_guard import RiskGuard, RiskResult, VaRMethod, ConfidenceLevel
+from .guards.iso_guard import ISOGuard, ISOResult
+from .guards.trading_guard import TradingGuard, TradingResult, MarketRules, ContractType, OrderSide
 from .models.receipt import (
     VerificationReceipt, 
     VerificationEngine, 
@@ -46,7 +50,7 @@ from .integrations import (
 )
 from .schemas import LoanSchema, InvestmentSchema, AmortizationSchema
 
-__version__ = "2.0.1"
+__version__ = "2.1.0"
 __all__ = [
     # Core Verifier
     "FinanceVerifier",
@@ -97,6 +101,17 @@ __all__ = [
     "RiskResult",
     "VaRMethod",
     "ConfidenceLevel",
+
+    # ISO Guard
+    "ISOGuard",
+    "ISOResult",
+
+    # Trading Guard
+    "TradingGuard",
+    "TradingResult",
+    "MarketRules",
+    "ContractType",
+    "OrderSide",
     
     # Audit Trail
     "VerificationReceipt",

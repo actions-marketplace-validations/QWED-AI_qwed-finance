@@ -1,9 +1,15 @@
+<div align="center">
+  <img src="assets/logo.png" alt="QWED Logo" width="80" height="80">
+</div>
+
 # QWED-Finance 🏦
 
 **Deterministic verification middleware for banking and financial AI.**
 
 [![Verified by QWED](https://img.shields.io/badge/Verified_by-QWED-00C853?style=flat&logo=checkmarx)](https://github.com/QWED-AI/qwed-finance)
 [![GitHub Developer Program](https://img.shields.io/badge/GitHub_Developer_Program-Member-4c1?style=flat&logo=github)](https://github.com/QWED-AI)
+[![Secured by Snyk](https://img.shields.io/badge/Secured_by-Snyk-4C3DBC?style=flat&logo=snyk&logoColor=white)](https://snyk.io/test/github/QWED-AI/qwed-finance)
+[![Docs by Mintlify](https://img.shields.io/badge/Docs_by-Mintlify-0f1117?style=flat&logo=mintlify&logoColor=white)](https://docs.qwedai.com)
 [![PyPI](https://img.shields.io/pypi/v/qwed-finance?color=blue)](https://pypi.org/project/qwed-finance/)
 [![npm](https://img.shields.io/npm/v/@qwed-ai/finance?color=red)](https://www.npmjs.com/package/@qwed-ai/finance)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
@@ -70,7 +76,7 @@ QWED-Finance is a **middleware layer** that applies QWED's deterministic verific
 
 ---
 
-## 🛡️ The Six Guards
+## 🛡️ The Ten Guards
 
 ### 1. Compliance Guard (Z3-Powered)
 **KYC/AML regulatory verification with formal boolean logic proofs.**
@@ -138,7 +144,7 @@ result = guard.verify_black_scholes(
     option_type=OptionType.CALL,
     llm_price="$3.50"
 )
-# result.greeks = {"delta": 0.4502, "gamma": 0.0389, ...}
+# result.greeks = {"delta": "0.4502", "gamma": "0.0389", ...}  # Decimal-quantized strings
 ```
 
 ### 4. Message Guard (ISO 20022 / SWIFT)
@@ -356,6 +362,25 @@ result = guard.verify_max_drawdown(
 - Expected Shortfall (CVaR)
 - Information Ratio
 
+### 10. ISO Guard (Banking Schema Validation)
+**Validate AI-generated payment messages against ISO 20022 JSON schemas.**
+
+```python
+from qwed_finance import ISOGuard
+
+guard = ISOGuard()
+
+# Verify ISO 20022 pacs.008 payment message
+result = guard.verify_payment_message({
+    "MsgId": "MSG001",
+    "CreDtTm": "2026-01-15T10:30:00Z",
+    "NbOfTxs": 1,
+    "TtlIntrBkSttlmAmt": {"amount": 50000.00, "currency": "USD"}
+})
+# result.verified = True  ✅
+# result.standard = "ISO 20022"
+```
+
 ---
 
 
@@ -497,7 +522,7 @@ QWED-Finance uses **SymPy** (symbolic math) instead of floating-point arithmetic
 |---------|----------------------|
 | **Data Transmission** | ❌ No API calls, no cloud processing |
 | **Storage** | ❌ Nothing stored, pure computation |
-| **Dependencies** | ✅ Local-only (SymPy, Z3, SQLGlot) |
+| **Dependencies** | ✅ Local-only (SymPy, mpmath, Z3, SQLGlot) |
 | **Audit Trail** | ✅ Cryptographic receipts, fully reproducible |
 
 **Perfect for:**
@@ -567,6 +592,13 @@ Typically <5ms for simple calculations, <50ms for complex derivatives pricing. T
 - [x] RiskGuard: VaR, Beta, Sharpe, Sortino, Max Drawdown
 - [x] `verification_mode` field (SYMBOLIC/HEURISTIC)
 
+### ✅ Released (v2.1.0)
+- [x] Security audit: Fail-closed enforcement in OpenResponses integration
+- [x] AML high-risk country list unified across all paths
+- [x] Rate parsing heuristic removed (fail-closed, returns Decimal)
+- [x] Float→Decimal/mpmath migration for BondGuard, DerivativesGuard, RiskGuard
+- [x] 150 tests (including 23 float contamination + N-04 regression)
+
 ### 🚧 In Progress
 - [ ] More regulatory frameworks (MiFID II, Basel III)
 - [ ] Credit risk models (PD, LGD, EAD)
@@ -583,8 +615,11 @@ Typically <5ms for simple calculations, <50ms for complex derivatives pricing. T
 | Package | Description |
 |---------|-------------|
 | [qwed-verification](https://github.com/QWED-AI/qwed-verification) | Core verification engine |
+| [qwed-legal](https://github.com/QWED-AI/qwed-legal) | Legal contract verification |
+| [qwed-tax](https://github.com/QWED-AI/qwed-tax) | Tax calculation verification |
 | [qwed-ucp](https://github.com/QWED-AI/qwed-ucp) | E-commerce verification |
 | [qwed-mcp](https://github.com/QWED-AI/qwed-mcp) | Claude Desktop integration |
+
 ---
 
 ## 🤖 GitHub Action for CI/CD
@@ -606,7 +641,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - uses: QWED-AI/qwed-finance@v1.1.1
+      - uses: QWED-AI/qwed-finance@v2.1.0
         with:
           test-script: tests/verify_agent.py
 ```

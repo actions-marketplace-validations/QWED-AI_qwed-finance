@@ -19,6 +19,18 @@ from pathlib import Path
 # Add current directory to path for local imports
 sys.path.insert(0, "/app")
 
+
+def _safe_resolve(path: str, base: str | None = None) -> str:
+    """Resolve a path safely, preventing directory traversal outside base."""
+    if base is None:
+        base = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
+    base_resolved = Path(base).resolve()
+    path_obj = Path(path)
+    resolved = (base_resolved / path).resolve() if not path_obj.is_absolute() else path_obj.resolve()
+    if not resolved.is_relative_to(base_resolved):
+        raise ValueError(f"Path traversal detected: {path} resolves outside {base}")
+    return str(resolved)
+
 # Lazy imports to avoid loading unnecessary dependencies
 def get_finance_verifier():
     from qwed_finance import FinanceVerifier
@@ -46,8 +58,10 @@ def set_output(name: str, value: str):
     # print(f"::set-output name={name}::{value}") # Deprecated
 
 
-def generate_sarif(findings: list, repo: str) -> dict:
+def generate_sarif(findings: list, repo: str, version: str | None = None) -> dict:
     """Generate SARIF output for GitHub Security tab"""
+    from qwed_finance import __version__
+    ver = version or __version__
     return {
         "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
         "version": "2.1.0",
@@ -55,7 +69,7 @@ def generate_sarif(findings: list, repo: str) -> dict:
             "tool": {
                 "driver": {
                     "name": "QWED Finance Guard",
-                    "version": "2.0.0",
+                    "version": ver,
                     "informationUri": "https://github.com/QWED-AI/qwed-finance",
                     "rules": [
                         {
@@ -210,8 +224,18 @@ def action_scan_file(scan_type: str):
     import pandas as pd
     
     data_file = os.getenv("INPUT_DATA_FILE", "")
-    
-    if not data_file or not os.path.exists(data_file):
+
+    if not data_file:
+        print("❌ Error: No data file specified")
+        sys.exit(1)
+
+    try:
+        data_file = _safe_resolve(data_file)
+    except ValueError as e:
+        print(f"❌ Error: {e}")
+        sys.exit(1)
+
+    if not os.path.exists(data_file):
         print(f"❌ Error: Data file not found: {data_file}")
         sys.exit(1)
     
@@ -356,9 +380,10 @@ def action_scan_file(scan_type: str):
 
 
 def main():
+    from qwed_finance import __version__
     action = os.getenv("INPUT_ACTION", "verify")
     
-    print(f"🏦 QWED Finance Guard v2.0")
+    print(f"🏦 QWED Finance Guard v{__version__}")
     print(f"   Action: {action}")
     print(f"{'='*50}")
     

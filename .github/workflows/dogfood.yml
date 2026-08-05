@@ -9,17 +9,16 @@ on:
   pull_request:
     branches: [main]
 
-permissions:
-  contents: read
-
 jobs:
   test-verify-modes:
     name: Test Verify Modes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       
       # Test 1: NPV Verification
       - name: Test NPV Verification
@@ -68,10 +67,12 @@ jobs:
   test-scan-modes:
     name: Test Scan Modes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       
       # Create test data file
       - name: Create NPV Test Data
@@ -114,10 +115,13 @@ jobs:
   test-sarif-output:
     name: Test SARIF Output
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       
       - name: Create Test Data with Error
         run: |
@@ -139,14 +143,15 @@ jobs:
       
       - name: Upload SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@38697555549f1db7851b81482ff19f1fa5c4fedc # v4.34.1
         with:
           sarif_file: qwed-finance-results.sarif
-        continue-on-error: true
 
   summary:
     name: Summary
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: [test-verify-modes, test-scan-modes, test-sarif-output]
     
     steps:
