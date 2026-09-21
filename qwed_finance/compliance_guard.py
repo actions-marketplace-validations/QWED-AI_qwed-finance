@@ -6,6 +6,157 @@ Handles KYC/AML rules with formal boolean logic proofs
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
 from enum import Enum
+import math
+import re
+import unicodedata
+
+
+ISO_ALPHA_2_COUNTRIES = frozenset(
+    "AF AX AL DZ AS AD AO AI AQ AG AR AM AW AU AT AZ "
+    "BS BH BD BB BY BE BZ BJ BM BT BO BQ BA BW BV BR IO BN BG BF BI "
+    "KH CM CA KY CF TD CL CN CX CC CO KM CG CD CK CR CI HR CU CV CW CY CZ "
+    "DK DJ DM DO EC EG SV GQ ER EE SZ ET FK FO FJ FI FR GF PF TF GA GM GE "
+    "DE GH GI GR GL GD GP GU GT GG GN GW GY HT HM VA HN HK HU IS IN ID IR "
+    "IQ IE IM IL IT JM JP JE JO KZ KE KI KP KR KW KG LA LV LB LS LR LY LI "
+    "LT LU MO MG MW MY MV ML MT MH MQ MR MU YT MX FM MD MC MN ME MS MA MZ "
+    "MM NA NR NP NL NC NZ NI NE NG NU NF MK MP NO OM PK PW PS PA PG PY PE "
+    "PH PN PL PT PR QA RE RO RU RW BL SH KN LC MF PM VC WS SM ST SA SN RS "
+    "SG SX SK SI SB SC SO ZA GS SS ES LK SD SL SR SJ SZ SE CH SY TW TJ TZ "
+    "TH TL TG TK TO TT TN TR TM TC TV UG UA AE GB US UM UY UZ VU VE VN VG "
+    "VI WF EH YE ZM ZW".split()
+)
+"""Officially-assigned ISO 3166-1 alpha-2 codes (249)."""
+
+
+def normalize_country_code(value: Any) -> str:
+    """Canonicalize a caller-supplied country code to strict alpha-2 form.
+
+    Applies NFKC normalization (fullwidth look-alikes), stripping, and
+    uppercasing, then requires membership in the assigned ISO 3166-1
+    alpha-2 set. Shape alone is not enough: unassigned codes such as ZZ
+    would otherwise miss the high-risk set and clear as compliant.
+    Anything unevaluable — punctuated/alpha-3/full-name/non-string/
+    unassigned values — raises ValueError so callers fail closed instead
+    of silently missing the high-risk set membership (strict-liability
+    bypass, #70).
+
+    Mirrors the assigned-code set enforced by the TypeScript SDK
+    (npm/src/index.ts); both are static standard data.
+    """
+    if not isinstance(value, str):
+        raise ValueError(f"country_code must be a string, got {type(value).__name__}")
+    normalized = unicodedata.normalize("NFKC", value).strip().upper()
+    if normalized not in ISO_ALPHA_2_COUNTRIES:
+        raise ValueError(
+            f"country_code {value!r} is not evaluable as ISO 3166-1 alpha-2"
+        )
+    return normalized
+
+
+def validate_amount(value: Any, field: str = "amount") -> int | float:
+    """Enforce a declared monetary constraint: finite number >= 0.
+
+    NaN compares false against every threshold (reads as below-threshold),
+    negatives are not valid money facts, Infinity distorts the comparison,
+    and bool is not a numeric type (``True == 1`` quirk). The finiteness
+    check applies to floats only: ``math.isfinite`` raises OverflowError
+    on huge ints, which are arbitrary-precision and compare exactly.
+    Missing (None) is rejected — amounts are required, never defaulted.
+    """
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or (isinstance(value, float) and not math.isfinite(value))
+        or value < 0
+    ):
+        raise ValueError(f"{field} must be a finite number >= 0")
+    return value
+
+
+def _is_ignorable(char: str) -> bool:
+    """Characters stripped before punctuation folding.
+
+    Unicode format controls (Cf: zero-width spaces, bidi controls and
+    isolates, BOM, soft hyphen, Arabic letter mark, tags block) plus the
+    non-spacing marks NFKC leaves behind (combining grapheme joiner
+    U+034F, variation selectors U+FE00-FE0F, Mongolian FVS U+180B-180F,
+    tag characters U+E0000-E0FFF). An embedded selector must never
+    split a name into unmatched fragments.
+    """
+    if unicodedata.category(char) == "Cf":
+        return True
+    return (
+        char == "\u034F"
+        or "\uFE00" <= char <= "\uFE0F"
+        or "\U000E0000" <= char <= "\U000E0FFF"
+        or "\u180B" <= char <= "\u180F"
+    )
+
+
+def normalize_for_screening(value: Any) -> str:
+    """Canonicalize a party string for sanctions containment checks.
+
+    NFKC fold (fullwidth/homoglyph forms), ignorable strip (zero-width,
+    bidi controls/isolates, BOM, Arabic letter mark), punctuation →
+    space, casefold, whitespace collapse. Unicode letters are preserved
+    (``str.isalnum`` is script-aware): identical non-Latin names match
+    instead of both collapsing to empty. Applied to BOTH sides of every
+    containment check, so one-char perturbations (extra spaces, hyphens,
+    dots, full-width, bidi isolates) cannot break the match (#76).
+    """
+    if not isinstance(value, str):
+        return ""
+    text = unicodedata.normalize("NFKC", value)
+    text = "".join(char for char in text if not _is_ignorable(char))
+    text = "".join(char if char.isalnum() else " " for char in text.casefold())
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _script_of(char: str) -> str:
+    """Unicode script family of a letter, by character-name prefix."""
+    return unicodedata.name(char, "").split(" ")[0]
+
+
+def has_mixed_scripts(value: str) -> bool:
+    """Detect Latin mixed with a non-Latin letter script.
+
+    Such names cannot be substring-screened reliably: a Cyrillic 'а'
+    never equals Latin 'a' even after NFKC. Callers must fail safe to
+    manual review instead of clearing (#76 residual). Pure diacritic
+    Latin ("José") is single-script and screens normally.
+    """
+    if not isinstance(value, str):
+        return False
+    scripts = {
+        _script_of(char)
+        for char in unicodedata.normalize("NFKC", value)
+        if char.isalpha()
+    }
+    return "LATIN" in scripts and not scripts <= {"LATIN", ""}
+
+
+def sanctions_match(entity: str, sanctioned: str, allow_reverse: bool = True) -> bool:
+    """Shared party-name matcher: normalized containment either direction
+    plus order-insensitive token-set equality.
+
+    Token-set equality covers reversed/comma names ("KOREA, NORTH" vs
+    "NORTH KOREA") that containment misses in both directions, without
+    an alias table. The reverse direction (and token equality over
+    fragments) applies only when the caller vouches the entity identifies
+    the party — address/narrative fragments match forward-only, so city
+    names cannot condemn via substring coincidence. Transliterations,
+    abbreviations, and true aliases remain a documented residual
+    requiring alias-structured data (#78).
+    """
+    left = normalize_for_screening(entity)
+    right = normalize_for_screening(sanctioned)
+    if not left or not right:
+        return False
+    if right in left:
+        return True
+    if allow_reverse and left in right:
+        return True
+    return allow_reverse and sorted(left.split()) == sorted(right.split())
 
 
 class RiskLevel(Enum):
@@ -90,7 +241,32 @@ class ComplianceGuard:
             ComplianceResult with verification status
         """
         threshold = self.aml_thresholds.get(jurisdiction, self.aml_thresholds["DEFAULT"])
-        is_high_risk = country_code.upper() in self.high_risk_countries
+        try:
+            amount = validate_amount(amount)
+        except ValueError:
+            # Fail closed: malformed amounts must force a flag, never clear
+            # (NaN reads as below-threshold; the UCP token path forwards
+            # raw amounts here).
+            return ComplianceResult(
+                compliant=False,
+                rule_violated="AML_AMOUNT_UNVERIFIABLE",
+                expected_action="FLAG",
+                llm_action="FLAG" if llm_flagged else "APPROVE",
+                proof="Transaction amount could not be evaluated as a finite non-negative number — blocked pending review",
+            )
+        try:
+            country_code = normalize_country_code(country_code)
+        except ValueError as exc:
+            # Fail closed: an unevaluable jurisdiction must force a flag,
+            # never clear as compliant (#70 strict-liability slice).
+            return ComplianceResult(
+                compliant=False,
+                rule_violated="AML_COUNTRY_UNVERIFIABLE",
+                expected_action="FLAG",
+                llm_action="FLAG" if llm_flagged else "APPROVE",
+                proof=f"Country jurisdiction could not be evaluated: {exc} — blocked pending review",
+            )
+        is_high_risk = country_code in self.high_risk_countries
         
         # Deterministic rule: MUST flag if amount >= threshold OR high-risk country
         should_flag = amount >= threshold or is_high_risk
