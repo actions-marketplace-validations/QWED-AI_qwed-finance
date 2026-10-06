@@ -1,0 +1,79 @@
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Publish @qwed-ai/finance
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@qwed-ai/finance
+    # Stable releases only; manual runs from main or a release tag (never dev branches)
+    if: >-
+      (github.event_name == 'release' && github.event.release.prerelease == false) ||
+      (github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref_type == 'tag'))
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: npm
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      # Runs before npm ci/publish so unreviewed code never executes with NODE_AUTH_TOKEN:
+      # - tag refs (release events, tag dispatches): tag name must match package.json AND
+      #   the tagged commit must already be on main (merged/reviewed)
+      # - dispatch from main: the matching tag must exist; its contents are checked out
+      #   and then verified (commit on main + package.json version match) before npm ci,
+      #   so what is published always equals the tagged release even after main advances
+      - name: Verify version and tag safety
+        if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_NAME" = "v$PKG_VERSION" ]; then
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "::error::Tag $GITHUB_REF_NAME points to a commit that is not on main"
+              exit 1
+            fi
+          elif [ "$GITHUB_REF_NAME" = "main" ] && [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            if ! git ls-remote --exit-code --tags origin "refs/tags/v$PKG_VERSION" >/dev/null; then
+              echo "::error::No tag v$PKG_VERSION exists - tag the release before publishing from main"
+              exit 1
+            fi
+            if ! git checkout --quiet --detach "refs/tags/v$PKG_VERSION"; then
+              echo "::error::Tag v$PKG_VERSION could not be checked out"
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor HEAD origin/main; then
+              echo "::error::Tag v$PKG_VERSION points to a commit that is not on main"
+              exit 1
+            fi
+            TAG_VERSION="$(node -p "require('./package.json').version")"
+            if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+              echo "::error::Tagged package.json version $TAG_VERSION does not match v$PKG_VERSION"
+              exit 1
+            fi
+            echo "Publishing tagged contents of v$PKG_VERSION (HEAD=$(git rev-parse --short HEAD))"
+          else
+            echo "::error::Ref $GITHUB_REF_NAME does not match package version $PKG_VERSION"
+            exit 1
+          fi
+
+      - run: npm ci
+
+      # prepublishOnly runs npm run build before packing
+      - run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
